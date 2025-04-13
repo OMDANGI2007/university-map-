@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>University Map with Live Location</title>
+  <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.js"></script>
+  <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.1/mapbox-gl.css" rel="stylesheet" />
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; }
+    #map { width: 100%; height: 100vh; }
+    #controls {
+      position: absolute; top: 10px; left: 10px; z-index: 1000;
+      background: white; padding: 10px; border-radius: 5px;
+    }
+    select, button {
+      margin: 5px 0; width: 100%; padding: 5px;
+    }
+    #zoomOverlay {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100vw;
+      height: 100vh;
+      background-color: rgba(0,0,0,0.8);
+      z-index: 2000;
+      justify-content: center;
+      align-items: center;
+    }
+    #zoomedImage {
+      max-width: 90vw;
+      max-height: 90vh;
+      border: 5px solid white;
+      border-radius: 10px;
+      cursor: zoom-out;
+    }
+  </style>
+</head>
+<body>
+
+<div id="controls">
+  <label for="location">Go to Location:</label>
+  <select id="location" onchange="goToLocation()"></select>
+
+  <br><br>
+
+  <label for="start">Start:</label>
+  <select id="start"></select>
+
+  <label for="destination">Destination:</label>
+  <select id="destination"></select>
+
+  <button onclick="updateRoute()">Show Route</button>
+  <button onclick="useLiveLocation()">Use Live Location</button>
+</div>
+
+<div id="map"></div>
+
+<!-- Image Zoom Overlay -->
+<div id="zoomOverlay" onclick="closeZoom()">
+  <img id="zoomedImage" src="" />
+</div>
+
+<script>
+  mapboxgl.accessToken = 'pk.eyJ1IjoidmVkYW50b20iLCJhIjoiY202bWEweDMwMGV2YzJrczRlZ2JtYWZibSJ9.LC_mF9gyUu5vBXuot8FQWQ';
+
+  const locations = [
+    { name: "Building 2", coords: [73.88367516423422, 18.459181351404517], image: "https://via.placeholder.com/150", description: "Engineering Dept" },
+    { name: "Main Building", coords: [73.8835843028105, 18.460288315096374], image: "Building_VU_2-min.jpg", description: "Admin", zoomable: true },
+    { name: "Building 4", coords: [73.88416703777891, 18.458350387535205], image: "Building_-__Design___Architecture", description: "architecture" },
+    { name: "Building 5", coords: [73.88385830208395, 18.457996621351942], image: "Building_-__Design___Architecture", description: "library and design classes " },
+    { name: "playground", coords: [73.88390385295752, 18.457775500169415], image: "sports.jpeg", description: "volleyball court", zoomable: true	 },
+    { name: "Playground", coords: [73.88390653242094, 18.457495921254193], image: "https://via.placeholder.com/150", description: "Main Ground for Events" },
+    { name: "Building 3", coords: [73.88407773451284, 18.45874112469597], image: "https://via.placeholder.com/150", description: "Lecture Halls" },
+    { name: "Canteen", coords: [73.88411692573803, 18.458480900120453], image: "https://via.placeholder.com/150", description: "Food & Beverages" }
+  ];
+
+  const map = new mapboxgl.Map({
+    container: 'map',
+    style: 'mapbox://styles/mapbox/streets-v12',
+    center: locations[0].coords,
+    zoom: 16
+  });
+
+  map.on('load', () => {
+    map.setPitch(60);
+    map.setBearing(-17.6);
+
+    const labelLayerId = map.getStyle().layers.find(
+      l => l.type === 'symbol' && l.layout['text-field']
+    )?.id;
+
+    map.addLayer({
+      id: '3d-buildings',
+      source: 'composite',
+      'source-layer': 'building',
+      filter: ['==', 'extrude', 'true'],
+      type: 'fill-extrusion',
+      minzoom: 15,
+      paint: {
+        'fill-extrusion-color': '#aaa',
+        'fill-extrusion-height': ['get', 'height'],
+        'fill-extrusion-base': ['get', 'min_height'],
+        'fill-extrusion-opacity': 0.6
+      }
+    }, labelLayerId);
+
+    addMarkers();
+    populateDropdowns();
+  });
+
+  function addMarkers() {
+    locations.forEach(loc => {
+      const popupContent = `
+        <div style="width: 200px;">
+          <h4>${loc.name}</h4>
+          <img src="${loc.image}" alt="${loc.name}" 
+               style="width: 100%; height: auto; cursor: ${loc.zoomable ? 'zoom-in' : 'default'};" 
+               ${loc.zoomable ? 'onclick="zoomImage(this.src)"' : ''} />
+          <p>${loc.description}</p>
+        </div>
+      `;
+      new mapboxgl.Marker()
+        .setLngLat(loc.coords)
+        .setPopup(new mapboxgl.Popup().setHTML(popupContent))
+        .addTo(map);
+    });
+  }
+
+  function populateDropdowns() {
+    const selects = ['location', 'start', 'destination'];
+    selects.forEach(id => {
+      const select = document.getElementById(id);
+      locations.forEach(loc => {
+        const option = document.createElement("option");
+        option.value = `${loc.coords[1]},${loc.coords[0]}`;
+        option.textContent = loc.name;
+        select.appendChild(option);
+      });
+    });
+  }
+
+  function goToLocation() {
+    const [lat, lng] = document.getElementById('location').value.split(',').map(Number);
+    map.flyTo({ center: [lng, lat], zoom: 18 });
+  }
+
+  function updateRoute(startCoord, endCoord) {
+    if (!startCoord || !endCoord) {
+      const [startLat, startLng] = document.getElementById('start').value.split(',').map(Number);
+      const [endLat, endLng] = document.getElementById('destination').value.split(',').map(Number);
+      startCoord = [startLng, startLat];
+      endCoord = [endLng, endLat];
+    }
+
+    fetch(`https://api.mapbox.com/directions/v5/mapbox/walking/${startCoord.join(',')};${endCoord.join(',')}?geometries=geojson&access_token=${mapboxgl.accessToken}`)
+      .then(res => res.json())
+      .then(data => {
+        if (map.getSource('route')) {
+          map.removeLayer('route');
+          map.removeSource('route');
+        }
+
+        map.addSource('route', {
+          type: 'geojson',
+          data: {
+            type: 'Feature',
+            geometry: data.routes[0].geometry
+          }
+        });
+
+        map.addLayer({
+          id: 'route',
+          type: 'line',
+          source: 'route',
+          layout: {
+            'line-join': 'round',
+            'line-cap': 'round'
+          },
+          paint: {
+            'line-color': '#0078A8',
+            'line-width': 5
+          }
+        });
+
+        map.fitBounds([startCoord, endCoord], { padding: 80 });
+      });
+  }
+
+  function useLiveLocation() {
+    if (!navigator.geolocation) {
+      alert('Geolocation is not supported by your browser');
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(position => {
+      const liveCoords = [position.coords.longitude, position.coords.latitude];
+      const [destLat, destLng] = document.getElementById('destination').value.split(',').map(Number);
+      const destinationCoords = [destLng, destLat];
+
+      new mapboxgl.Marker({ color: "blue" })
+        .setLngLat(liveCoords)
+        .setPopup(new mapboxgl.Popup().setText("You are here"))
+        .addTo(map);
+
+      map.flyTo({ center: liveCoords, zoom: 17 });
+
+      updateRoute(liveCoords, destinationCoords);
+
+    }, () => {
+      alert('Unable to retrieve your location');
+    });
+  }
+
+  function zoomImage(src) {
+    const overlay = document.getElementById('zoomOverlay');
+    const zoomedImg = document.getElementById('zoomedImage');
+    zoomedImg.src = src;
+    overlay.style.display = 'flex';
+  }
+
+  function closeZoom() {
+    document.getElementById('zoomOverlay').style.display = 'none';
+  }
+</script>
+
+</body>
+</html>
